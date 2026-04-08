@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import {
-  signInAnonymously, getSession,
   loadProfile, saveProfile,
   loadWeekPlan, saveWeekPlan as dbSaveWeekPlan,
   loadWorkoutLogs, appendWorkoutLog, deleteAllWorkoutLogs,
@@ -53,12 +52,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        // Ensure we have an auth session
-        let session = await getSession();
-        if (!session) {
-          await signInAnonymously();
-        }
-        // Load all user data
         const [profile, plan, logs, customs] = await Promise.all([
           loadProfile(),
           loadWeekPlan(),

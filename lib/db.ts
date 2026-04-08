@@ -1,16 +1,17 @@
 /**
- * Data layer — mirrors the prototype's save/load helpers but uses Supabase.
- * All functions assume the user is already signed in (anonymous or otherwise).
+ * Data layer — local storage only. No auth required.
+ * Uses AsyncStorage on native, localStorage on web.
+ * Supabase/accounts can be layered on top later.
  */
 
-import { supabase } from './supabase';
+import { Platform } from 'react-native';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type WeekPlan = Record<string, string>; // { Monday: 'se-bw-1', Tuesday: 'rest', ... }
+export type WeekPlan = Record<string, string>;
 
 export type SetLog = { reps?: string; weight?: string };
-export type ExerciseLog = Record<string, SetLog[]>; // { e1: [{reps:'10'}, ...], ... }
+export type ExerciseLog = Record<string, SetLog[]>;
 export type WorkoutLog = {
   id?: string;
   workout_id: string;
@@ -45,140 +46,112 @@ export type Profile = {
   onboarded: boolean;
 };
 
-// ─── Auth ─────────────────────────────────────────────────────────────────────
+// ─── Storage primitives ───────────────────────────────────────────────────────
 
-export async function signInAnonymously(): Promise<string> {
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error) throw error;
-  return data.user!.id;
+const KEYS = {
+  profile: '@dadlift:profile',
+  weekPlan: '@dadlift:weekplan',
+  logs: '@dadlift:logs',
+  custom: '@dadlift:custom',
+};
+
+async function getItem(key: string): Promise<string | null> {
+  if (Platform.OS === 'web') {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem(key);
+  }
+  const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+  return AsyncStorage.getItem(key);
 }
 
-export async function getSession() {
-  const { data } = await supabase.auth.getSession();
-  return data.session;
+async function setItem(key: string, value: string): Promise<void> {
+  if (Platform.OS === 'web') {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(key, value);
+    return;
+  }
+  const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+  await AsyncStorage.setItem(key, value);
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
 
 export async function loadProfile(): Promise<Profile> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('equipment, month_label, onboarded')
-    .single();
-  if (error || !data) return { equipment: [], month_label: '', onboarded: false };
-  return {
-    equipment: data.equipment ?? [],
-    month_label: data.month_label ?? '',
-    onboarded: data.onboarded ?? false,
-  };
+  try {
+    const raw = await getItem(KEYS.profile);
+    if (!raw) return { equipment: [], month_label: '', onboarded: false };
+    return JSON.parse(raw);
+  } catch {
+    return { equipment: [], month_label: '', onboarded: false };
+  }
 }
 
 export async function saveProfile(updates: Partial<Profile>): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-
-  const payload: Record<string, unknown> = { id: user.id, updated_at: new Date().toISOString() };
-  if (updates.equipment !== undefined) payload.equipment = updates.equipment;
-  if (updates.month_label !== undefined) payload.month_label = updates.month_label;
-  if (updates.onboarded !== undefined) payload.onboarded = updates.onboarded;
-
-  await supabase.from('profiles').upsert(payload);
+  const current = await loadProfile();
+  const next = { ...current, ...updates };
+  await setItem(KEYS.profile, JSON.stringify(next));
 }
 
 // ─── Week Plan ────────────────────────────────────────────────────────────────
 
 export async function loadWeekPlan(): Promise<WeekPlan> {
-  const { data, error } = await supabase.from('week_plans').select('day, workout_id');
-  if (error || !data) return {};
-  return Object.fromEntries(data.map((r) => [r.day, r.workout_id]));
+  try {
+    const raw = await getItem(KEYS.weekPlan);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
 }
 
 export async function saveWeekPlan(plan: WeekPlan): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-
-  // Delete all existing rows then insert fresh (simplest approach for a small dataset)
-  await supabase.from('week_plans').delete().eq('user_id', user.id);
-
-  const rows = Object.entries(plan).map(([day, workout_id]) => ({
-    user_id: user.id,
-    day,
-    workout_id,
-    updated_at: new Date().toISOString(),
-  }));
-
-  if (rows.length > 0) {
-    await supabase.from('week_plans').insert(rows);
-  }
+  await setItem(KEYS.weekPlan, JSON.stringify(plan));
 }
 
 // ─── Workout Logs ─────────────────────────────────────────────────────────────
 
 export async function loadWorkoutLogs(): Promise<Record<string, WorkoutLog[]>> {
-  const { data, error } = await supabase
-    .from('workout_logs')
-    .select('id, workout_id, logged_at, data')
-    .order('logged_at', { ascending: true });
-
-  if (error || !data) return {};
-
-  const result: Record<string, WorkoutLog[]> = {};
-  for (const row of data) {
-    if (!result[row.workout_id]) result[row.workout_id] = [];
-    result[row.workout_id].push({
-      id: row.id,
-      workout_id: row.workout_id,
-      logged_at: row.logged_at,
-      data: row.data,
-    });
+  try {
+    const raw = await getItem(KEYS.logs);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
   }
-  return result;
 }
 
 export async function appendWorkoutLog(log: WorkoutLog): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-
-  await supabase.from('workout_logs').insert({
-    user_id: user.id,
-    workout_id: log.workout_id,
-    logged_at: log.logged_at,
-    data: log.data,
-  });
+  const current = await loadWorkoutLogs();
+  if (!current[log.workout_id]) current[log.workout_id] = [];
+  current[log.workout_id].push({ ...log, id: log.id ?? Date.now().toString() });
+  await setItem(KEYS.logs, JSON.stringify(current));
 }
 
 export async function deleteAllWorkoutLogs(): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-  await supabase.from('workout_logs').delete().eq('user_id', user.id);
+  await setItem(KEYS.logs, JSON.stringify({}));
 }
 
 // ─── Custom Workouts ──────────────────────────────────────────────────────────
 
 export async function loadCustomWorkouts(): Promise<CustomWorkout[]> {
-  const { data, error } = await supabase
-    .from('custom_workouts')
-    .select('data')
-    .order('created_at', { ascending: true });
-  if (error || !data) return [];
-  return data.map((r) => r.data as CustomWorkout);
+  try {
+    const raw = await getItem(KEYS.custom);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch {
+    return [];
+  }
 }
 
 export async function saveCustomWorkout(workout: CustomWorkout): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-
-  await supabase.from('custom_workouts').upsert({
-    user_id: user.id,
-    workout_id: workout.id,
-    data: workout,
-  });
+  const current = await loadCustomWorkouts();
+  const idx = current.findIndex(w => w.id === workout.id);
+  if (idx >= 0) current[idx] = workout;
+  else current.push(workout);
+  await setItem(KEYS.custom, JSON.stringify(current));
 }
 
 export async function deleteCustomWorkout(workoutId: string): Promise<void> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-  await supabase.from('custom_workouts').delete()
-    .eq('user_id', user.id)
-    .eq('workout_id', workoutId);
+  const current = await loadCustomWorkouts();
+  await setItem(KEYS.custom, JSON.stringify(current.filter(w => w.id !== workoutId)));
 }
