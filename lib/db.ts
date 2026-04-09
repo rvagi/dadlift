@@ -60,8 +60,12 @@ async function getItem(key: string): Promise<string | null> {
     if (typeof window === 'undefined') return null;
     return window.localStorage.getItem(key);
   }
-  const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-  return AsyncStorage.getItem(key);
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    return await AsyncStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
 
 async function setItem(key: string, value: string): Promise<void> {
@@ -70,8 +74,12 @@ async function setItem(key: string, value: string): Promise<void> {
     window.localStorage.setItem(key, value);
     return;
   }
-  const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-  await AsyncStorage.setItem(key, value);
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    await AsyncStorage.setItem(key, value);
+  } catch {
+    // silently fail in environments without native storage (e.g. Expo Go)
+  }
 }
 
 // ─── Profile ──────────────────────────────────────────────────────────────────
