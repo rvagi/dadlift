@@ -2,11 +2,12 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import {
   loadProfile, saveProfile,
   loadWeekPlan, saveWeekPlan as dbSaveWeekPlan,
-  loadWorkoutLogs, appendWorkoutLog, deleteAllWorkoutLogs,
+  loadWorkoutLogs, appendWorkoutLog, deleteAllWorkoutLogs, updateWorkoutLog, saveAllLogs, generateId,
   loadCustomWorkouts, saveCustomWorkout, deleteCustomWorkout,
   type WeekPlan, type WorkoutLog, type CustomWorkout, type Profile,
 } from '@/lib/db';
-import { WORKOUTS, type Workout } from '@/lib/workouts';
+import { type Workout } from '@/lib/workouts';
+import { loadWorkouts } from '@/lib/workoutService';
 
 type PlanSlot = { day: string; type: string } | null;
 type BrowseFilter = { type: string | null; equip: string | null };
@@ -34,6 +35,7 @@ type AppContextValue = {
   setPlanSlot: (slot: PlanSlot) => void;
   setBrowseFilter: (f: BrowseFilter) => void;
   getLastLog: (workoutId: string) => WorkoutLog | null;
+  updateLog: (workoutId: string, logId: string, updates: Partial<WorkoutLog>) => Promise<void>;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -46,24 +48,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [workoutLogs, setWorkoutLogsState] = useState<Record<string, WorkoutLog[]>>({});
   const [customWorkouts, setCustomWorkoutsState] = useState<CustomWorkout[]>([]);
   const [monthLabel, setMonthLabelState] = useState('');
+  const [seededWorkouts, setSeededWorkouts] = useState<Workout[]>([]);
   const [planSlot, setPlanSlot] = useState<PlanSlot>(null);
   const [browseFilter, setBrowseFilter] = useState<BrowseFilter>({ type: null, equip: null });
 
   useEffect(() => {
     (async () => {
       try {
-        const [profile, plan, logs, customs] = await Promise.all([
+        const [profile, plan, logs, customs, workouts] = await Promise.all([
           loadProfile(),
           loadWeekPlan(),
           loadWorkoutLogs(),
           loadCustomWorkouts(),
+          loadWorkouts(),
         ]);
+        // Backfill ids on legacy logs that were created before id assignment was added.
+        // One-time, idempotent: logs that already have ids are untouched.
+        let migratedLogs = logs;
+        const needsMigration = Object.values(logs).some(arr => arr.some(l => !l.id));
+        if (needsMigration) {
+          migratedLogs = Object.fromEntries(
+            Object.entries(logs).map(([wid, arr]) => [
+              wid,
+              arr.map(l => l.id ? l : { ...l, id: generateId() }),
+            ])
+          );
+          await saveAllLogs(migratedLogs);
+        }
+
         setOnboarded(profile.onboarded);
         setEquipmentState(profile.equipment);
         setMonthLabelState(profile.month_label);
         setWeekPlanState(plan);
-        setWorkoutLogsState(logs);
+        setWorkoutLogsState(migratedLogs);
         setCustomWorkoutsState(customs);
+        setSeededWorkouts(workouts);
       } catch (e) {
         console.error('App init error:', e);
       } finally {
@@ -94,13 +113,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logWorkout = useCallback(async (log: WorkoutLog) => {
+    const logWithId: WorkoutLog = { ...log, id: log.id ?? generateId() };
     setWorkoutLogsState(prev => {
       const next = { ...prev };
-      if (!next[log.workout_id]) next[log.workout_id] = [];
-      next[log.workout_id] = [...next[log.workout_id], log];
+      if (!next[logWithId.workout_id]) next[logWithId.workout_id] = [];
+      next[logWithId.workout_id] = [...next[logWithId.workout_id], logWithId];
       return next;
     });
-    await appendWorkoutLog(log);
+    await appendWorkoutLog(logWithId);
   }, []);
 
   const clearWorkoutHistory = useCallback(async () => {
@@ -124,7 +144,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return logs[logs.length - 1];
   }, [workoutLogs]);
 
-  const allWorkouts = [...WORKOUTS, ...customWorkouts] as Workout[];
+  const updateLog = useCallback(async (workoutId: string, logId: string, updates: Partial<WorkoutLog>) => {
+    setWorkoutLogsState(prev => {
+      const next = { ...prev };
+      if (!next[workoutId]) return prev;
+      next[workoutId] = next[workoutId].map(l => l.id === logId ? { ...l, ...updates } : l);
+      return next;
+    });
+    await updateWorkoutLog(workoutId, logId, updates);
+  }, []);
+
+  const allWorkouts = [...seededWorkouts, ...customWorkouts];
 
   return (
     <AppContext.Provider value={{
@@ -132,7 +162,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       customWorkouts, monthLabel, planSlot, browseFilter, allWorkouts,
       completeOnboarding, setEquipment, setWeekPlan, setMonthLabel,
       logWorkout, clearWorkoutHistory, addCustomWorkout, removeCustomWorkout,
-      setPlanSlot, setBrowseFilter, getLastLog,
+      setPlanSlot, setBrowseFilter, getLastLog, updateLog,
     }}>
       {children}
     </AppContext.Provider>

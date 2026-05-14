@@ -1,12 +1,49 @@
 import { useState } from 'react';
-import { ScrollView, View, Text, TouchableOpacity, StyleSheet, SafeAreaView, Alert } from 'react-native';
+import { ScrollView, View, Text, TouchableOpacity, TextInput, StyleSheet, SafeAreaView, Alert, Clipboard, Platform, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
+import { useSubscription } from '@/context/SubscriptionContext';
+import PaywallModal from '@/components/PaywallModal';
 import { colors, fonts, equipmentOptions } from '@/constants/theme';
 
 export default function SettingsScreen() {
   const { equipment, setEquipment, clearWorkoutHistory } = useApp();
+  const { isPro, customerID, restorePurchases, refreshStatus } = useSubscription();
   const router = useRouter();
+  const [paywallVisible, setPaywallVisible] = useState(false);
+  const [giftCode, setGiftCode] = useState('');
+  const [redeemingCode, setRedeemingCode] = useState(false);
+
+  const redeemGiftCode = async () => {
+    if (!giftCode.trim()) return;
+    if (!customerID) {
+      Alert.alert('Not ready', 'Please wait a moment and try again.');
+      return;
+    }
+    setRedeemingCode(true);
+    try {
+      const res = await fetch(
+        'https://vbsixbjxnhmwemishfxa.supabase.co/functions/v1/redeem-gift-code',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ giftCode: giftCode.trim(), customerId: customerID }),
+        }
+      );
+      const data = await res.json();
+      if (data.success) {
+        await refreshStatus();
+        setGiftCode('');
+        Alert.alert('Welcome to Pro!', 'You now have full access to DadLift Pro.');
+      } else {
+        Alert.alert('Invalid code', 'That code didn\'t work. Double-check and try again.');
+      }
+    } catch {
+      Alert.alert('Error', 'Could not connect. Check your internet and try again.');
+    } finally {
+      setRedeemingCode(false);
+    }
+  };
 
   const toggleEquipment = async (id: string) => {
     const next = equipment.includes(id) ? equipment.filter(e => e !== id) : [...equipment, id];
@@ -56,6 +93,82 @@ export default function SettingsScreen() {
           <Text style={{ marginLeft: 'auto', color: colors.success, fontSize: 18 }}>✓</Text>
         </View>
 
+        {/* ── SUBSCRIPTION ── */}
+        <Text style={styles.h2}>SUBSCRIPTION</Text>
+        {isPro ? (
+          <View style={[styles.card, { borderColor: colors.accent, borderWidth: 2 }]}>
+            <Text style={[styles.label, { color: colors.accent }]}>✓ DADLIFT PRO</Text>
+            <Text style={[styles.p, { marginBottom: 8 }]}>
+              You have full access to all Pro features.
+            </Text>
+            {Platform.OS !== 'web' && customerID ? (
+              <TouchableOpacity onPress={() => {
+                Clipboard.setString(customerID);
+                Alert.alert('Copied', 'Your customer ID has been copied.\nShare it to receive gift access.');
+              }}>
+                <Text style={[styles.p, { fontSize: 11, color: colors.textDim }]}>
+                  Customer ID (tap to copy){'\n'}{customerID}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : (
+          <>
+            <Text style={styles.p}>
+              Unlock monthly planning, workout history, and custom workouts.
+            </Text>
+            <TouchableOpacity style={styles.btnAccent} onPress={() => setPaywallVisible(true)}>
+              <Text style={styles.btnAccentText}>Upgrade to Pro →</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.btnOutline} onPress={async () => {
+              try {
+                await restorePurchases();
+                await refreshStatus();
+                Alert.alert('Restored', 'Your purchases have been restored.');
+              } catch {
+                Alert.alert('Nothing to restore', 'No previous purchases found for this account.');
+              }
+            }}>
+              <Text style={styles.btnOutlineText}>Restore Purchases</Text>
+            </TouchableOpacity>
+            {/* Gift code redemption */}
+            <View style={styles.giftRow}>
+              <TextInput
+                style={styles.giftInput}
+                value={giftCode}
+                onChangeText={setGiftCode}
+                placeholder="Have a gift code?"
+                placeholderTextColor={colors.textDim}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={[styles.giftBtn, (!giftCode.trim() || redeemingCode) && { opacity: 0.5 }]}
+                onPress={redeemGiftCode}
+                disabled={!giftCode.trim() || redeemingCode}
+              >
+                {redeemingCode
+                  ? <ActivityIndicator color="#fff" size="small" />
+                  : <Text style={styles.giftBtnText}>Redeem</Text>
+                }
+              </TouchableOpacity>
+            </View>
+
+            {Platform.OS !== 'web' && customerID ? (
+              <TouchableOpacity onPress={() => {
+                Clipboard.setString(customerID);
+                Alert.alert('Copied', 'Share your customer ID to receive gift access from a friend.');
+              }}>
+                <Text style={[styles.p, { fontSize: 11, color: colors.textDim, marginTop: 8 }]}>
+                  Customer ID (tap to copy){'\n'}{customerID}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </>
+        )}
+
+        <PaywallModal visible={paywallVisible} onClose={() => setPaywallVisible(false)} />
+
         <Text style={styles.h2}>ABOUT</Text>
         <TouchableOpacity style={styles.btnOutline} onPress={() => router.push('/onboarding')}>
           <Text style={styles.btnOutlineText}>Replay Intro</Text>
@@ -89,4 +202,16 @@ const styles = StyleSheet.create({
   equipActive: { borderColor: colors.accent, borderWidth: 2, backgroundColor: colors.accentSoft },
   btnOutline: { borderWidth: 1, borderColor: colors.border, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
   btnOutlineText: { fontFamily: fonts.semibold, fontSize: 15, color: colors.textMuted },
+  btnAccent: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
+  btnAccentText: { fontFamily: fonts.bold, fontSize: 15, color: '#fff' },
+  giftRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  giftInput: {
+    flex: 1, backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
+    borderRadius: 10, padding: 12, color: colors.text, fontFamily: fonts.regular, fontSize: 15,
+  },
+  giftBtn: {
+    backgroundColor: colors.accent, borderRadius: 10,
+    paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center',
+  },
+  giftBtnText: { fontFamily: fonts.bold, fontSize: 14, color: '#fff' },
 });

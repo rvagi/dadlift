@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, View, Text, TextInput, TouchableOpacity,
-  StyleSheet, SafeAreaView, Linking, Alert,
+  StyleSheet, SafeAreaView, Linking, Alert, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import { colors, fonts, workoutTypes, equipmentOptions } from '@/constants/theme';
-import type { WorkoutLog } from '@/lib/db';
+import { saveDraft, loadDraft, clearDraft, type WorkoutLog } from '@/lib/db';
 
 function Tag({ label, color }: { label: string; color: string }) {
   return (
@@ -20,8 +20,8 @@ type SetData = { reps: string; weight: string };
 type ExerciseLogData = Record<string, SetData[]>;
 
 export default function WorkoutScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
-  const { allWorkouts, getLastLog, logWorkout } = useApp();
+  const { id, logId } = useLocalSearchParams<{ id: string; logId?: string }>();
+  const { allWorkouts, getLastLog, logWorkout, workoutLogs, updateLog } = useApp();
   const router = useRouter();
 
   const workout = allWorkouts.find(w => w.id === id);
@@ -30,17 +30,57 @@ export default function WorkoutScreen() {
   const isHypertrophy = workout?.type === 'strength-hypertrophy';
   const isCardio = workout?.type?.startsWith('cardio') ?? false;
 
-  // Build initial log state
+  // Edit mode: find the log being edited
+  const editingLog = logId && workout
+    ? (workoutLogs[workout.id] ?? []).find(l => l.id === logId) ?? null
+    : null;
+
+  // Build initial log state — pre-fill from editingLog if in edit mode
   const [exerciseLog, setExerciseLog] = useState<ExerciseLogData>(() => {
     if (!workout || isCardio) return {};
+    if (editingLog?.data?.exercises) {
+      return editingLog.data.exercises as ExerciseLogData;
+    }
     const data: ExerciseLogData = {};
     workout.exercises.forEach(ex => {
       data[ex.id] = Array.from({ length: ex.sets }, () => ({ reps: '', weight: '' }));
     });
     return data;
   });
-  const [duration, setDuration] = useState('');
-  const [notes, setNotes] = useState('');
+  const [duration, setDuration] = useState(editingLog?.data?.duration ?? '');
+  const [notes, setNotes] = useState(editingLog?.data?.notes ?? '');
+
+  // Ref to gate draft saves until after the restore attempt completes
+  const draftReady = useRef(false);
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Restore draft on mount (new workouts only)
+  useEffect(() => {
+    if (logId || isCardio || !workout) {
+      draftReady.current = true;
+      return;
+    }
+    loadDraft(workout.id).then(draft => {
+      if (draft) {
+        setExerciseLog(draft.exerciseLog as ExerciseLogData);
+        setDuration(draft.duration);
+        setNotes(draft.notes);
+      }
+      draftReady.current = true;
+    });
+  }, []); // intentionally runs once on mount
+
+  // Debounced draft save whenever state changes (new workouts only)
+  useEffect(() => {
+    if (!draftReady.current || logId || isCardio || !workout) return;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      saveDraft(workout.id, { exerciseLog, duration, notes });
+    }, 500);
+    return () => {
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+    };
+  }, [exerciseLog, duration, notes]);
 
   if (!workout) {
     return (
@@ -72,192 +112,240 @@ export default function WorkoutScreen() {
   };
 
   const handleSave = () => {
-    const log: WorkoutLog = {
-      workout_id: workout.id,
-      logged_at: new Date().toISOString(),
-      data: isCardio
-        ? { duration, notes }
-        : { exercises: exerciseLog, notes },
-    };
-    logWorkout(log).catch(console.error);
-    router.replace('/(tabs)');
+    if (editingLog && logId) {
+      // Edit mode: overwrite existing log entry
+      const updates: Partial<WorkoutLog> = {
+        data: isCardio ? { duration, notes } : { exercises: exerciseLog, notes },
+      };
+      updateLog(workout.id, logId, updates).catch(console.error);
+      router.replace('/(tabs)/history');
+    } else {
+      // New log
+      const log: WorkoutLog = {
+        workout_id: workout.id,
+        logged_at: new Date().toISOString(),
+        data: isCardio ? { duration, notes } : { exercises: exerciseLog, notes },
+      };
+      logWorkout(log).catch(console.error);
+      clearDraft(workout.id);
+      router.replace('/(tabs)');
+    }
   };
 
   const confirmBack = () => {
-    Alert.alert('Quit Workout?', 'Your progress won\'t be saved.', [
-      { text: 'Keep Going', style: 'cancel' },
-      { text: 'Quit', style: 'destructive', onPress: () => router.back() },
-    ]);
+    const isEditing = !!editingLog;
+    Alert.alert(
+      isEditing ? 'Discard Changes?' : 'Quit Workout?',
+      isEditing ? "Your edits won't be saved." : "Your progress won't be saved.",
+      [
+        { text: isEditing ? 'Keep Editing' : 'Keep Going', style: 'cancel' },
+        {
+          text: isEditing ? 'Discard' : 'Quit',
+          style: 'destructive',
+          onPress: () => {
+            if (!logId) clearDraft(workout.id);
+            router.back();
+          },
+        },
+      ]
+    );
   };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {/* Back */}
-        <TouchableOpacity onPress={confirmBack} style={styles.backRow}>
-          <Text style={styles.backBtn}>← Back</Text>
-        </TouchableOpacity>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={100}
+      >
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          {/* Back */}
+          <TouchableOpacity onPress={confirmBack} style={styles.backRow}>
+            <Text style={styles.backBtn}>← Back</Text>
+          </TouchableOpacity>
 
-        {/* Header */}
-        <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-          <Tag label={typeInfo.short} color={typeInfo.color} />
-          {(() => {
-            const eq = equipmentOptions.find(e => e.id === workout.equipment);
-            return eq ? <Tag label={`${eq.icon} ${eq.label}`} color="#888" /> : null;
-          })()}
-        </View>
-        <Text style={styles.h1}>{workout.name}</Text>
-        <Text style={styles.p}>{workout.description}</Text>
-
-        {/* Warm-up */}
-        {workout.warmup && (
-          <View style={[styles.card, { backgroundColor: colors.warningSoft, borderColor: colors.warning }]}>
-            <Text style={styles.cardTitle}>Warm-Up First:</Text>
-            <Text style={[styles.p, { marginBottom: 0 }]}>{workout.warmup}</Text>
-          </View>
-        )}
-
-        {/* How-to banner */}
-        {isHypertrophy && (
-          <View style={[styles.card, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
-            <Text style={styles.cardTitle}>How to do this workout:</Text>
-            <Text style={[styles.p, { marginBottom: 6 }]}>Each exercise has 4 sets. Aim for 6-10 reps per set. Pick a weight that makes the last 2-3 reps feel hard.</Text>
-            <Text style={[styles.p, { marginBottom: 0 }]}><Text style={{ color: colors.text, fontFamily: fonts.semibold }}>Getting stronger:</Text> When you can do 10 reps on every set, increase the weight by 5 lbs for upper body or 10 lbs for legs next time.</Text>
-          </View>
-        )}
-        {isEndurance && (
-          <View style={[styles.card, { backgroundColor: colors.successSoft, borderColor: colors.success }]}>
-            <Text style={styles.cardTitle}>How to do this workout:</Text>
-            <Text style={[styles.p, { marginBottom: 6 }]}>Each exercise has 3 sets. Do each set to max reps, then rest 60-90 seconds.</Text>
-            <Text style={[styles.p, { marginBottom: 0 }]}>Record how many reps you completed each set. Next time, try to beat those numbers.</Text>
-          </View>
-        )}
-        {isCardio && (
-          <View style={[styles.card, { backgroundColor: colors.successSoft, borderColor: colors.success }]}>
-            <Text style={styles.cardTitle}>How to do this workout:</Text>
-            <Text style={[styles.p, { marginBottom: 0 }]}>Read the instructions below, do the workout, then come back and log how long it took. Consistency matters more than perfection.</Text>
-          </View>
-        )}
-
-        {/* Modifications */}
-        {workout.modifications && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Need to modify?</Text>
-            <Text style={[styles.p, { marginBottom: 0 }]}>{workout.modifications}</Text>
-          </View>
-        )}
-
-        {/* Exercises */}
-        {!isCardio && workout.exercises.map(ex => (
-          <View key={ex.id} style={[styles.card, { marginBottom: 16 }]}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.overline, { color: typeInfo.color }]}>{ex.category}</Text>
-                <Text style={styles.h3}>{ex.name}</Text>
-              </View>
-              {ex.videoUrl && (
-                <TouchableOpacity
-                  style={styles.formBtn}
-                  onPress={() => Linking.openURL(ex.videoUrl!)}
-                >
-                  <Text style={styles.formBtnText}>📹 Form</Text>
-                </TouchableOpacity>
-              )}
+          {/* Edit mode banner */}
+          {editingLog && (
+            <View style={styles.editingBanner}>
+              <Text style={styles.editingBannerText}>✏️  EDITING PAST WORKOUT</Text>
             </View>
-            <Text style={[styles.p, { marginBottom: 12 }]}>{ex.notes}</Text>
+          )}
 
-            {/* Set rows */}
-            {(exerciseLog[ex.id] ?? []).map((setData, si) => {
-              const lastSet = getLastSet(ex.id, si);
-              return (
-                <View key={si} style={{ marginBottom: 8 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={styles.setLabel}>Set {si + 1}</Text>
-                    {isHypertrophy && (
+          {/* Header */}
+          <View style={{ flexDirection: 'row', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+            <Tag label={typeInfo.short} color={typeInfo.color} />
+            {(() => {
+              const eq = equipmentOptions.find(e => e.id === workout.equipment);
+              return eq ? <Tag label={`${eq.icon} ${eq.label}`} color="#888" /> : null;
+            })()}
+          </View>
+          <Text style={styles.h1}>{workout.name}</Text>
+          <Text style={styles.p}>{workout.description}</Text>
+
+          {/* Warm-up */}
+          {workout.warmup && (
+            <View style={[styles.card, { backgroundColor: colors.warningSoft, borderColor: colors.warning }]}>
+              <Text style={styles.cardTitle}>Warm-Up First:</Text>
+              <Text style={[styles.p, { marginBottom: 0 }]}>{workout.warmup}</Text>
+            </View>
+          )}
+
+          {/* How-to banner */}
+          {isHypertrophy && (
+            <View style={[styles.card, { backgroundColor: colors.accentSoft, borderColor: colors.accent }]}>
+              <Text style={styles.cardTitle}>How to do this workout:</Text>
+              <Text style={[styles.p, { marginBottom: 6 }]}>Each exercise has 4 sets. Aim for 6-10 reps per set. Pick a weight that makes the last 2-3 reps feel hard.</Text>
+              <Text style={[styles.p, { marginBottom: 0 }]}><Text style={{ color: colors.text, fontFamily: fonts.semibold }}>Getting stronger:</Text> When you can do 10 reps on every set, increase the weight by 5 lbs for upper body or 10 lbs for legs next time.</Text>
+            </View>
+          )}
+          {isEndurance && (
+            <View style={[styles.card, { backgroundColor: colors.successSoft, borderColor: colors.success }]}>
+              <Text style={styles.cardTitle}>How to do this workout:</Text>
+              <Text style={[styles.p, { marginBottom: 6 }]}>Each exercise has 3 sets. Do each set to max reps, then rest 60-90 seconds.</Text>
+              <Text style={[styles.p, { marginBottom: 0 }]}>Record how many reps you completed each set. Next time, try to beat those numbers.</Text>
+            </View>
+          )}
+          {isCardio && (
+            <View style={[styles.card, { backgroundColor: colors.successSoft, borderColor: colors.success }]}>
+              <Text style={styles.cardTitle}>How to do this workout:</Text>
+              <Text style={[styles.p, { marginBottom: 0 }]}>Read the instructions below, do the workout, then come back and log how long it took. Consistency matters more than perfection.</Text>
+            </View>
+          )}
+
+          {/* Modifications */}
+          {workout.modifications && (
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Need to modify?</Text>
+              <Text style={[styles.p, { marginBottom: 0 }]}>{workout.modifications}</Text>
+            </View>
+          )}
+
+          {/* Exercises */}
+          {!isCardio && workout.exercises.map(ex => (
+            <View key={ex.id} style={[styles.card, { marginBottom: 16 }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.overline, { color: typeInfo.color }]}>{ex.category}</Text>
+                  <Text style={styles.h3}>{ex.name}</Text>
+                </View>
+                {ex.videoUrl && (
+                  <TouchableOpacity
+                    style={styles.formBtn}
+                    onPress={() => Linking.openURL(ex.videoUrl!)}
+                  >
+                    <Text style={styles.formBtnText}>📹 Form</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              <Text style={[styles.p, { marginBottom: ex.advanced_modification ? 4 : 12 }]}>{ex.notes}</Text>
+              {!!ex.advanced_modification && (
+                <Text style={styles.advancedMod}>Advanced: {ex.advanced_modification}</Text>
+              )}
+
+              {/* Set rows */}
+              {(exerciseLog[ex.id] ?? []).map((setData, si) => {
+                const lastSet = getLastSet(ex.id, si);
+                return (
+                  <View key={si} style={{ marginBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.setLabel}>Set {si + 1}</Text>
+                      {isHypertrophy && (
+                        <TextInput
+                          style={styles.setInput}
+                          placeholder="lbs"
+                          placeholderTextColor={colors.textDim}
+                          keyboardType="decimal-pad"
+                          value={setData.weight}
+                          onChangeText={v => updateSet(ex.id, si, 'weight', v)}
+                        />
+                      )}
                       <TextInput
                         style={styles.setInput}
-                        placeholder="lbs"
+                        placeholder="reps"
                         placeholderTextColor={colors.textDim}
-                        keyboardType="decimal-pad"
-                        value={setData.weight}
-                        onChangeText={v => updateSet(ex.id, si, 'weight', v)}
+                        keyboardType="number-pad"
+                        value={setData.reps}
+                        onChangeText={v => updateSet(ex.id, si, 'reps', v)}
                       />
+                      <Text style={styles.setUnit}>
+                        {isHypertrophy ? 'lbs × reps' : 'reps'}
+                      </Text>
+                      {lastSet && (
+                        <TouchableOpacity
+                          style={styles.useLastBtn}
+                          onPress={() => {
+                            if (isHypertrophy) updateSet(ex.id, si, 'weight', lastSet.weight);
+                            updateSet(ex.id, si, 'reps', lastSet.reps);
+                          }}
+                        >
+                          <Text style={styles.useLastBtnText}>↺ Use</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {lastSet && (
+                      <Text style={styles.lastTime}>
+                        Last time: {isHypertrophy
+                          ? `${lastSet.weight || '?'} lbs × ${lastSet.reps || '?'} reps`
+                          : `${lastSet.reps || '?'} reps`}
+                      </Text>
                     )}
-                    <TextInput
-                      style={styles.setInput}
-                      placeholder="reps"
-                      placeholderTextColor={colors.textDim}
-                      keyboardType="number-pad"
-                      value={setData.reps}
-                      onChangeText={v => updateSet(ex.id, si, 'reps', v)}
-                    />
-                    <Text style={styles.setUnit}>
-                      {isHypertrophy ? 'lbs × reps' : 'reps'}
-                    </Text>
                   </View>
-                  {lastSet && (
-                    <Text style={styles.lastTime}>
-                      Last time: {isHypertrophy
-                        ? `${lastSet.weight || '?'} lbs × ${lastSet.reps || '?'} reps`
-                        : `${lastSet.reps || '?'} reps`}
-                    </Text>
-                  )}
-                </View>
-              );
-            })}
-          </View>
-        ))}
+                );
+              })}
+            </View>
+          ))}
 
-        {/* Cardio logging */}
-        {isCardio && (
-          <View style={styles.card}>
-            {workout.exercises[0] && (
-              <>
-                <Text style={styles.h3}>{workout.exercises[0].name}</Text>
-                <Text style={[styles.p, { marginBottom: 16 }]}>{workout.exercises[0].notes}</Text>
-              </>
-            )}
-            <Text style={styles.fieldLabel}>Duration (minutes)</Text>
+          {/* Cardio logging */}
+          {isCardio && (
+            <View style={styles.card}>
+              {workout.exercises[0] && (
+                <>
+                  <Text style={styles.h3}>{workout.exercises[0].name}</Text>
+                  <Text style={[styles.p, { marginBottom: 16 }]}>{workout.exercises[0].notes}</Text>
+                </>
+              )}
+              <Text style={styles.fieldLabel}>Duration (minutes)</Text>
+              <TextInput
+                style={[styles.setInput, { width: '100%', textAlign: 'left', marginBottom: 4 }]}
+                placeholder="e.g. 45"
+                placeholderTextColor={colors.textDim}
+                keyboardType="number-pad"
+                value={duration}
+                onChangeText={setDuration}
+              />
+              {lastLog?.data?.duration && (
+                <Text style={styles.lastTime}>Last time: {lastLog.data.duration} min</Text>
+              )}
+            </View>
+          )}
+
+          {/* Notes */}
+          <View style={{ marginBottom: 20 }}>
+            <Text style={styles.fieldLabel}>Notes (optional)</Text>
             <TextInput
-              style={[styles.setInput, { width: '100%', textAlign: 'left', marginBottom: 4 }]}
-              placeholder="e.g. 45"
+              style={[styles.setInput, { width: '100%', textAlign: 'left', minHeight: 72, paddingTop: 10 }]}
+              placeholder="How'd it feel? Anything to remember?"
               placeholderTextColor={colors.textDim}
-              keyboardType="number-pad"
-              value={duration}
-              onChangeText={setDuration}
+              multiline
+              value={notes}
+              onChangeText={setNotes}
             />
-            {lastLog?.data?.duration && (
-              <Text style={styles.lastTime}>Last time: {lastLog.data.duration} min</Text>
-            )}
           </View>
-        )}
 
-        {/* Notes */}
-        <View style={{ marginBottom: 20 }}>
-          <Text style={styles.fieldLabel}>Notes (optional)</Text>
-          <TextInput
-            style={[styles.setInput, { width: '100%', textAlign: 'left', minHeight: 72, paddingTop: 10 }]}
-            placeholder="How'd it feel? Anything to remember?"
-            placeholderTextColor={colors.textDim}
-            multiline
-            value={notes}
-            onChangeText={setNotes}
-          />
-        </View>
+          <TouchableOpacity style={styles.btn} onPress={handleSave}>
+            <Text style={styles.btnText}>{editingLog ? '✓ Save Changes' : '✓ Log Workout'}</Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.btn} onPress={handleSave}>
-          <Text style={styles.btnText}>✓ Log Workout</Text>
-        </TouchableOpacity>
-
-        <View style={{ height: 40 }} />
-      </ScrollView>
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  scroll: { padding: 20, paddingBottom: 32 },
+  scroll: { padding: 20, paddingBottom: 120 },
   backRow: { marginBottom: 16 },
   backBtn: { fontFamily: fonts.regular, fontSize: 16, color: colors.textMuted },
   h1: { fontFamily: fonts.display, fontSize: 32, letterSpacing: 1, color: colors.text, marginBottom: 6 },
@@ -281,4 +369,9 @@ const styles = StyleSheet.create({
   fieldLabel: { fontFamily: fonts.semibold, fontSize: 13, color: colors.textMuted, marginBottom: 6 },
   btn: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
   btnText: { fontFamily: fonts.bold, fontSize: 16, color: '#fff' },
+  useLastBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 6, paddingVertical: 4, paddingHorizontal: 8 },
+  useLastBtnText: { fontFamily: fonts.semibold, fontSize: 11, color: colors.textMuted },
+  editingBanner: { backgroundColor: colors.warning + '22', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: colors.warning, alignItems: 'center' },
+  editingBannerText: { fontFamily: fonts.bold, fontSize: 11, color: colors.warning, letterSpacing: 1 },
+  advancedMod: { fontFamily: fonts.light, fontSize: 13, color: colors.textDim, fontStyle: 'italic', marginBottom: 12, marginTop: -2 },
 });

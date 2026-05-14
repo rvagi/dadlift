@@ -2,7 +2,7 @@
   "expo": {
     "name": "DadLift",
     "slug": "dadlift",
-    "version": "1.0.0",
+    "version": "1.1.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "dadlift",
@@ -15,7 +15,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.rvagi.dadlift"
+      "bundleIdentifier": "com.rvagi.dadlift",
+      "buildNumber": "9",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIRequiresFullScreen": true
+      }
     },
     "android": {
       "adaptiveIcon": {

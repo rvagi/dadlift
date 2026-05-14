@@ -1,10 +1,11 @@
 export type Exercise = {
   id: string;
   name: string;
-  category: 'push' | 'pull' | 'legs' | 'core' | 'cardio';
+  category: 'push' | 'pull' | 'legs' | 'hinge' | 'core' | 'cardio';
   sets: number;
   notes: string;
   videoUrl?: string;
+  advanced_modification?: string;
 };
 
 export type Workout = {

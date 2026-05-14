@@ -6,6 +6,7 @@ import {
 import { useApp } from '@/context/AppContext';
 import { colors, fonts, workoutTypes, equipmentOptions } from '@/constants/theme';
 import type { CustomWorkout } from '@/lib/db';
+import ProGate from '@/components/ProGate';
 
 function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
   return (
@@ -27,7 +28,7 @@ export default function BuildScreen() {
   const [saved, setSaved] = useState(false);
 
   const isCardio = type.startsWith('cardio');
-  const categories = isCardio ? ['cardio'] : ['push', 'pull', 'legs', 'core'];
+  const categories = isCardio ? ['cardio'] : ['push', 'pull', 'legs', 'hinge', 'core'];
 
   const addExercise = () => {
     setExercises(prev => [...prev, {
@@ -84,6 +85,7 @@ export default function BuildScreen() {
   };
 
   return (
+    <ProGate featureName="Build Custom Workouts">
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Text style={styles.logo}>DADLIFT</Text>
@@ -119,7 +121,7 @@ export default function BuildScreen() {
         </ScrollView>
 
         <Text style={styles.h2}>EXERCISES</Text>
-        {!isCardio && <Text style={styles.p}>Add at least one exercise for each category: push, pull, and legs.</Text>}
+        {!isCardio && <Text style={styles.p}>Add at least one exercise for each category: push, pull, legs, or hinge.</Text>}
 
         {exercises.map((ex, idx) => (
           <View key={ex.id} style={[styles.card, { padding: 14 }]}>
@@ -187,6 +189,7 @@ export default function BuildScreen() {
         <View style={{ height: 20 }} />
       </ScrollView>
     </SafeAreaView>
+    </ProGate>
   );
 }
 

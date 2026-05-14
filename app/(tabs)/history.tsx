@@ -1,4 +1,5 @@
-import { ScrollView, View, Text, StyleSheet, SafeAreaView } from 'react-native';
+import { ScrollView, View, Text, StyleSheet, SafeAreaView, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import { colors, fonts, workoutTypes } from '@/constants/theme';
 
@@ -12,6 +13,7 @@ function Tag({ label, color }: { label: string; color: string }) {
 
 export default function HistoryScreen() {
   const { workoutLogs, allWorkouts } = useApp();
+  const router = useRouter();
 
   // Flatten all logs into a sorted list
   const allLogs: Array<{ workoutId: string; log: (typeof workoutLogs)[string][number] }> = [];
@@ -50,7 +52,17 @@ export default function HistoryScreen() {
                   </Text>
                   <Text style={styles.workoutName}>{w.name}</Text>
                 </View>
-                <Tag label={typeInfo.short} color={typeInfo.color} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {log.id && (
+                    <TouchableOpacity
+                      onPress={() => router.push(`/workout/${workoutId}?logId=${log.id}`)}
+                      style={styles.editBtn}
+                    >
+                      <Text style={styles.editBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                  )}
+                  <Tag label={typeInfo.short} color={typeInfo.color} />
+                </View>
               </View>
 
               {isCardio && log.data.duration && (
@@ -104,4 +116,6 @@ const styles = StyleSheet.create({
   notes: { fontFamily: fonts.light, fontSize: 12, color: colors.textDim, marginTop: 8, fontStyle: 'italic' },
   tag: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   tagText: { fontFamily: fonts.bold, fontSize: 10, letterSpacing: 1 },
+  editBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10 },
+  editBtnText: { fontFamily: fonts.semibold, fontSize: 11, color: colors.textMuted },
 });

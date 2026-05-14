@@ -10,6 +10,7 @@ import {
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
 import { AppProvider } from '@/context/AppContext';
+import { SubscriptionProvider } from '@/context/SubscriptionContext';
 import { colors } from '@/constants/theme';
 
 SplashScreen.preventAutoHideAsync();
@@ -32,6 +33,7 @@ export default function RootLayout() {
   if (!fontsLoaded && !fontError) return null;
 
   return (
+    <SubscriptionProvider>
     <AppProvider>
       <StatusBar style="light" />
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
@@ -41,5 +43,6 @@ export default function RootLayout() {
         <Stack.Screen name="workout/[id]" options={{ animation: 'slide_from_right' }} />
       </Stack>
     </AppProvider>
+    </SubscriptionProvider>
   );
 }

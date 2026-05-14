@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { ScrollView, View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
+import { useSubscription } from '@/context/SubscriptionContext';
 import { colors, fonts, workoutTypes, DAYS } from '@/constants/theme';
+import PaywallModal from '@/components/PaywallModal';
 
 function Tag({ label, color }: { label: string; color: string }) {
   return (
@@ -13,7 +16,9 @@ function Tag({ label, color }: { label: string; color: string }) {
 
 export default function HomeScreen() {
   const { weekPlan, allWorkouts, getLastLog, monthLabel } = useApp();
+  const { isPro } = useSubscription();
   const router = useRouter();
+  const [paywallVisible, setPaywallVisible] = useState(false);
 
   const todayIdx = new Date().getDay();
   const today = DAYS[todayIdx === 0 ? 6 : todayIdx - 1];
@@ -122,8 +127,27 @@ export default function HomeScreen() {
           </>
         )}
 
+        {/* Upgrade card — visible to free users, always at the bottom */}
+        {!isPro && (
+          <TouchableOpacity style={styles.upgradeCard} onPress={() => setPaywallVisible(true)}>
+            <View style={styles.upgradeRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.upgradeLabel}>DADLIFT PRO</Text>
+                <Text style={styles.upgradeHeadline}>Unlock the full library + custom workouts</Text>
+                <Text style={styles.upgradePrice}>$4.99 / month · $25 / year</Text>
+              </View>
+              <Text style={styles.upgradeArrow}>→</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         <View style={{ height: 20 }} />
       </ScrollView>
+
+      <PaywallModal
+        visible={paywallVisible}
+        onClose={() => setPaywallVisible(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -151,4 +175,13 @@ const styles = StyleSheet.create({
   tagText: { fontFamily: fonts.bold, fontSize: 10, letterSpacing: 1 },
   btn: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   btnText: { fontFamily: fonts.bold, fontSize: 15, color: '#fff' },
+  upgradeCard: {
+    borderWidth: 1, borderColor: colors.accent, borderRadius: 16,
+    padding: 16, marginTop: 8, backgroundColor: colors.accentSoft,
+  },
+  upgradeRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  upgradeLabel: { fontFamily: fonts.bold, fontSize: 10, letterSpacing: 2, color: colors.accent, marginBottom: 4 },
+  upgradeHeadline: { fontFamily: fonts.semibold, fontSize: 15, color: colors.text, marginBottom: 4 },
+  upgradePrice: { fontFamily: fonts.regular, fontSize: 13, color: colors.textMuted },
+  upgradeArrow: { fontFamily: fonts.bold, fontSize: 22, color: colors.accent },
 });

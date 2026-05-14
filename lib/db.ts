@@ -118,6 +118,10 @@ export async function saveWeekPlan(plan: WeekPlan): Promise<void> {
 
 // ─── Workout Logs ─────────────────────────────────────────────────────────────
 
+export function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
 export async function loadWorkoutLogs(): Promise<Record<string, WorkoutLog[]>> {
   try {
     const raw = await getItem(KEYS.logs);
@@ -131,12 +135,51 @@ export async function loadWorkoutLogs(): Promise<Record<string, WorkoutLog[]>> {
 export async function appendWorkoutLog(log: WorkoutLog): Promise<void> {
   const current = await loadWorkoutLogs();
   if (!current[log.workout_id]) current[log.workout_id] = [];
-  current[log.workout_id].push({ ...log, id: log.id ?? Date.now().toString() });
+  current[log.workout_id].push({ ...log, id: log.id ?? generateId() });
   await setItem(KEYS.logs, JSON.stringify(current));
+}
+
+export async function saveAllLogs(logs: Record<string, WorkoutLog[]>): Promise<void> {
+  await setItem(KEYS.logs, JSON.stringify(logs));
 }
 
 export async function deleteAllWorkoutLogs(): Promise<void> {
   await setItem(KEYS.logs, JSON.stringify({}));
+}
+
+export async function updateWorkoutLog(workoutId: string, logId: string, updates: Partial<WorkoutLog>): Promise<void> {
+  const current = await loadWorkoutLogs();
+  if (!current[workoutId]) return;
+  current[workoutId] = current[workoutId].map(l => l.id === logId ? { ...l, ...updates } : l);
+  await setItem(KEYS.logs, JSON.stringify(current));
+}
+
+// ─── In-progress workout draft ────────────────────────────────────────────────
+
+const DRAFT_PREFIX = '@dadlift:draft:';
+
+export type WorkoutDraft = {
+  exerciseLog: ExerciseLog;
+  duration: string;
+  notes: string;
+};
+
+export async function saveDraft(workoutId: string, draft: WorkoutDraft): Promise<void> {
+  await setItem(DRAFT_PREFIX + workoutId, JSON.stringify(draft));
+}
+
+export async function loadDraft(workoutId: string): Promise<WorkoutDraft | null> {
+  try {
+    const raw = await getItem(DRAFT_PREFIX + workoutId);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function clearDraft(workoutId: string): Promise<void> {
+  await setItem(DRAFT_PREFIX + workoutId, '');
 }
 
 // ─── Custom Workouts ──────────────────────────────────────────────────────────
