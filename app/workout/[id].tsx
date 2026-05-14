@@ -53,6 +53,7 @@ export default function WorkoutScreen() {
   // Ref to gate draft saves until after the restore attempt completes
   const draftReady = useRef(false);
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   // Restore draft on mount (new workouts only)
   useEffect(() => {
@@ -156,9 +157,8 @@ export default function WorkoutScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={100}
       >
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+        <ScrollView ref={scrollViewRef} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           {/* Back */}
           <TouchableOpacity onPress={confirmBack} style={styles.backRow}>
             <Text style={styles.backBtn}>← Back</Text>
@@ -267,9 +267,6 @@ export default function WorkoutScreen() {
                         value={setData.reps}
                         onChangeText={v => updateSet(ex.id, si, 'reps', v)}
                       />
-                      <Text style={styles.setUnit}>
-                        {isHypertrophy ? 'lbs × reps' : 'reps'}
-                      </Text>
                       {lastSet && (
                         <TouchableOpacity
                           style={styles.useLastBtn}
@@ -329,6 +326,9 @@ export default function WorkoutScreen() {
               multiline
               value={notes}
               onChangeText={setNotes}
+              onFocus={() => {
+                setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 300);
+              }}
             />
           </View>
 
@@ -364,7 +364,6 @@ const styles = StyleSheet.create({
     borderRadius: 10, padding: 10, color: colors.text, fontFamily: fonts.regular,
     fontSize: 15, textAlign: 'center',
   },
-  setUnit: { fontFamily: fonts.regular, fontSize: 12, color: colors.textDim },
   lastTime: { fontFamily: fonts.regular, fontSize: 12, color: colors.textDim, marginTop: 4, marginLeft: 60 },
   fieldLabel: { fontFamily: fonts.semibold, fontSize: 13, color: colors.textMuted, marginBottom: 6 },
   btn: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
