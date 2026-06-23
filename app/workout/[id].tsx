@@ -217,7 +217,7 @@ export default function WorkoutScreen() {
           {isEndurance && (
             <View style={[styles.card, { backgroundColor: colors.successSoft, borderColor: colors.success }]}>
               <Text style={styles.cardTitle}>How to do this workout:</Text>
-              <Text style={[styles.p, { marginBottom: 6 }]}>Each exercise has 4 sets. Do each set to max reps, then rest 60-90 seconds.</Text>
+              <Text style={[styles.p, { marginBottom: 6 }]}>Each exercise has 4 sets. Do each set to max reps, then rest 60-90 seconds. Short on time? Run it as a circuit — one set of each exercise back-to-back, then repeat.</Text>
               <Text style={[styles.p, { marginBottom: 0 }]}>Record how many reps you completed each set. Next time, try to beat those numbers.</Text>
             </View>
           )}
