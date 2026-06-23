@@ -10,7 +10,12 @@ import { Platform } from 'react-native';
 
 export type WeekPlan = Record<string, string>;
 
-export type SetLog = { reps?: string; weight?: string };
+export type SetLog = {
+  reps?: string;   // bilateral value (reps, seconds, or distance per tracking_type)
+  weight?: string; // load, when the exercise is weighted
+  left?: string;   // unilateral value for the left side
+  right?: string;  // unilateral value for the right side
+};
 export type ExerciseLog = Record<string, SetLog[]>;
 export type WorkoutLog = {
   id?: string;

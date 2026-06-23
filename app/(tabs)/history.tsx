@@ -2,6 +2,7 @@ import { ScrollView, View, Text, StyleSheet, SafeAreaView, TouchableOpacity } fr
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import { colors, fonts, workoutTypes } from '@/constants/theme';
+import { valueUnit } from '@/lib/exerciseTags';
 
 function Tag({ label, color }: { label: string; color: string }) {
   return (
@@ -74,11 +75,14 @@ export default function HistoryScreen() {
                   {w.exercises.map(ex => {
                     const exLog = log.data.exercises?.[ex.id];
                     if (!exLog) return null;
+                    const weighted = ex.is_weighted ?? (w.type === 'strength-hypertrophy');
+                    const uni = ex.is_unilateral ?? false;
+                    const unitName = valueUnit(ex);
                     const summary = exLog.map(s => {
-                      if (w.type === 'strength-hypertrophy') return `${s.weight || 0}×${s.reps || 0}`;
-                      return `${s.reps || 0}`;
+                      const val = uni ? `${s.left || 0}/${s.right || 0}` : `${s.reps || 0}`;
+                      return weighted ? `${s.weight || 0}×${val}` : val;
                     }).join(' / ');
-                    const unit = w.type === 'strength-hypertrophy' ? ' lbs×reps' : ' reps';
+                    const unit = `${weighted ? ` lbs×${unitName}` : ` ${unitName}`}${uni ? ' (L/R)' : ''}`;
                     return (
                       <Text key={ex.id} style={styles.detail}>
                         <Text style={{ color: colors.textMuted }}>{ex.name}: </Text>

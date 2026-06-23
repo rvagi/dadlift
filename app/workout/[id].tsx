@@ -7,6 +7,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import { colors, fonts, workoutTypes, equipmentOptions } from '@/constants/theme';
 import { saveDraft, loadDraft, clearDraft, type WorkoutLog } from '@/lib/db';
+import { valueUnit, type TrackingType } from '@/lib/exerciseTags';
+import IntervalTimer from '@/components/IntervalTimer';
 
 function Tag({ label, color }: { label: string; color: string }) {
   return (
@@ -16,7 +18,7 @@ function Tag({ label, color }: { label: string; color: string }) {
   );
 }
 
-type SetData = { reps: string; weight: string };
+type SetData = { reps: string; weight: string; left?: string; right?: string };
 type ExerciseLogData = Record<string, SetData[]>;
 
 export default function WorkoutScreen() {
@@ -29,6 +31,20 @@ export default function WorkoutScreen() {
   const isEndurance = workout?.type === 'strength-endurance';
   const isHypertrophy = workout?.type === 'strength-hypertrophy';
   const isCardio = workout?.type?.startsWith('cardio') ?? false;
+
+  // Per-exercise logging shape. Untagged (e.g. custom) exercises fall back to
+  // the old behaviour: weight only for hypertrophy, bilateral rep counts.
+  type ExLike = { is_weighted?: boolean; is_unilateral?: boolean; tracking_type?: TrackingType };
+  const exWeighted = (ex: ExLike) => ex.is_weighted ?? isHypertrophy;
+  const exUnilateral = (ex: ExLike) => ex.is_unilateral ?? false;
+  const exTracking = (ex: ExLike): TrackingType => ex.tracking_type ?? 'reps';
+
+  const lastSummary = (ex: ExLike, s: SetData): string => {
+    const unit = valueUnit(ex);
+    const w = exWeighted(ex) ? `${s.weight || '?'} lbs × ` : '';
+    if (exUnilateral(ex)) return `${w}${s.left || '?'}/${s.right || '?'} ${unit} (L/R)`;
+    return `${w}${s.reps || '?'} ${unit}`;
+  };
 
   // Edit mode: find the log being edited
   const editingLog = logId && workout
@@ -109,7 +125,7 @@ export default function WorkoutScreen() {
     if (!lastLog?.data?.exercises) return null;
     const s = lastLog.data.exercises[exId]?.[setIdx];
     if (!s) return null;
-    return { reps: s.reps ?? '', weight: s.weight ?? '' };
+    return { reps: s.reps ?? '', weight: s.weight ?? '', left: s.left ?? '', right: s.right ?? '' };
   };
 
   const handleSave = () => {
@@ -201,7 +217,7 @@ export default function WorkoutScreen() {
           {isEndurance && (
             <View style={[styles.card, { backgroundColor: colors.successSoft, borderColor: colors.success }]}>
               <Text style={styles.cardTitle}>How to do this workout:</Text>
-              <Text style={[styles.p, { marginBottom: 6 }]}>Each exercise has 3 sets. Do each set to max reps, then rest 60-90 seconds.</Text>
+              <Text style={[styles.p, { marginBottom: 6 }]}>Each exercise has 4 sets. Do each set to max reps, then rest 60-90 seconds.</Text>
               <Text style={[styles.p, { marginBottom: 0 }]}>Record how many reps you completed each set. Next time, try to beat those numbers.</Text>
             </View>
           )}
@@ -243,54 +259,90 @@ export default function WorkoutScreen() {
               )}
 
               {/* Set rows */}
-              {(exerciseLog[ex.id] ?? []).map((setData, si) => {
-                const lastSet = getLastSet(ex.id, si);
-                return (
-                  <View key={si} style={{ marginBottom: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={styles.setLabel}>Set {si + 1}</Text>
-                      {isHypertrophy && (
-                        <TextInput
-                          style={styles.setInput}
-                          placeholder="lbs"
-                          placeholderTextColor={colors.textDim}
-                          keyboardType="decimal-pad"
-                          value={setData.weight}
-                          onChangeText={v => updateSet(ex.id, si, 'weight', v)}
-                        />
-                      )}
-                      <TextInput
-                        style={styles.setInput}
-                        placeholder="reps"
-                        placeholderTextColor={colors.textDim}
-                        keyboardType="number-pad"
-                        value={setData.reps}
-                        onChangeText={v => updateSet(ex.id, si, 'reps', v)}
-                      />
+              {(() => {
+                const weighted = exWeighted(ex);
+                const unilateral = exUnilateral(ex);
+                const unit = valueUnit(ex);
+                return (exerciseLog[ex.id] ?? []).map((setData, si) => {
+                  const lastSet = getLastSet(ex.id, si);
+                  return (
+                    <View key={si} style={{ marginBottom: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <Text style={styles.setLabel}>Set {si + 1}</Text>
+                        {weighted && (
+                          <TextInput
+                            style={styles.setInput}
+                            placeholder="lbs"
+                            placeholderTextColor={colors.textDim}
+                            keyboardType="decimal-pad"
+                            value={setData.weight}
+                            onChangeText={v => updateSet(ex.id, si, 'weight', v)}
+                          />
+                        )}
+                        {unilateral ? (
+                          <>
+                            <View style={styles.sideField}>
+                              <Text style={styles.sideLabel}>L</Text>
+                              <TextInput
+                                style={styles.setInputSm}
+                                placeholder={unit}
+                                placeholderTextColor={colors.textDim}
+                                keyboardType="number-pad"
+                                value={setData.left ?? ''}
+                                onChangeText={v => updateSet(ex.id, si, 'left', v)}
+                              />
+                            </View>
+                            <View style={styles.sideField}>
+                              <Text style={styles.sideLabel}>R</Text>
+                              <TextInput
+                                style={styles.setInputSm}
+                                placeholder={unit}
+                                placeholderTextColor={colors.textDim}
+                                keyboardType="number-pad"
+                                value={setData.right ?? ''}
+                                onChangeText={v => updateSet(ex.id, si, 'right', v)}
+                              />
+                            </View>
+                          </>
+                        ) : (
+                          <TextInput
+                            style={styles.setInput}
+                            placeholder={unit}
+                            placeholderTextColor={colors.textDim}
+                            keyboardType="number-pad"
+                            value={setData.reps}
+                            onChangeText={v => updateSet(ex.id, si, 'reps', v)}
+                          />
+                        )}
+                        {lastSet && (
+                          <TouchableOpacity
+                            style={styles.useLastBtn}
+                            onPress={() => {
+                              if (weighted) updateSet(ex.id, si, 'weight', lastSet.weight);
+                              if (unilateral) {
+                                updateSet(ex.id, si, 'left', lastSet.left ?? '');
+                                updateSet(ex.id, si, 'right', lastSet.right ?? '');
+                              } else {
+                                updateSet(ex.id, si, 'reps', lastSet.reps);
+                              }
+                            }}
+                          >
+                            <Text style={styles.useLastBtnText}>↺ Use</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
                       {lastSet && (
-                        <TouchableOpacity
-                          style={styles.useLastBtn}
-                          onPress={() => {
-                            if (isHypertrophy) updateSet(ex.id, si, 'weight', lastSet.weight);
-                            updateSet(ex.id, si, 'reps', lastSet.reps);
-                          }}
-                        >
-                          <Text style={styles.useLastBtnText}>↺ Use</Text>
-                        </TouchableOpacity>
+                        <Text style={styles.lastTime}>Last time: {lastSummary(ex, lastSet)}</Text>
                       )}
                     </View>
-                    {lastSet && (
-                      <Text style={styles.lastTime}>
-                        Last time: {isHypertrophy
-                          ? `${lastSet.weight || '?'} lbs × ${lastSet.reps || '?'} reps`
-                          : `${lastSet.reps || '?'} reps`}
-                      </Text>
-                    )}
-                  </View>
-                );
-              })}
+                  );
+                });
+              })()}
             </View>
           ))}
+
+          {/* Cardio: interval timer (EMOM / Tabata / circuits) */}
+          {isCardio && <IntervalTimer />}
 
           {/* Cardio logging */}
           {isCardio && (
@@ -364,6 +416,13 @@ const styles = StyleSheet.create({
     borderRadius: 10, padding: 10, color: colors.text, fontFamily: fonts.regular,
     fontSize: 15, textAlign: 'center',
   },
+  setInputSm: {
+    width: 60, backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
+    borderRadius: 10, padding: 10, color: colors.text, fontFamily: fonts.regular,
+    fontSize: 15, textAlign: 'center',
+  },
+  sideField: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  sideLabel: { fontFamily: fonts.bold, fontSize: 12, color: colors.textDim, width: 12, textAlign: 'center' },
   lastTime: { fontFamily: fonts.regular, fontSize: 12, color: colors.textDim, marginTop: 4, marginLeft: 60 },
   fieldLabel: { fontFamily: fonts.semibold, fontSize: 13, color: colors.textMuted, marginBottom: 6 },
   btn: { backgroundColor: colors.accent, borderRadius: 12, paddingVertical: 16, alignItems: 'center' },
