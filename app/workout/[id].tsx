@@ -8,7 +8,6 @@ import { useApp } from '@/context/AppContext';
 import { colors, fonts, workoutTypes, equipmentOptions } from '@/constants/theme';
 import { saveDraft, loadDraft, clearDraft, type WorkoutLog } from '@/lib/db';
 import { valueUnit, type TrackingType } from '@/lib/exerciseTags';
-import IntervalTimer from '@/components/IntervalTimer';
 
 function Tag({ label, color }: { label: string; color: string }) {
   return (
@@ -149,6 +148,19 @@ export default function WorkoutScreen() {
     }
   };
 
+  // Open the interval timer, pre-filled from this workout's prescribed
+  // structure when it has one. Available on every workout (built-in or custom);
+  // custom/non-interval workouts just get editable defaults.
+  const openTimer = () => {
+    const t = workout.timer;
+    router.push({
+      pathname: '/timer',
+      params: t
+        ? { work: String(t.work), rest: String(t.rest), rounds: String(t.rounds), name: workout.name }
+        : {},
+    });
+  };
+
   const confirmBack = () => {
     const isEditing = !!editingLog;
     Alert.alert(
@@ -197,6 +209,13 @@ export default function WorkoutScreen() {
           </View>
           <Text style={styles.h1}>{workout.name}</Text>
           <Text style={styles.p}>{workout.description}</Text>
+
+          {/* Universal interval-timer tool — available on any workout */}
+          <TouchableOpacity style={styles.timerBtn} onPress={openTimer}>
+            <Text style={styles.timerBtnText}>
+              ⏱  Interval Timer{workout.timer ? ' — prescribed' : ''}
+            </Text>
+          </TouchableOpacity>
 
           {/* Warm-up */}
           {workout.warmup && (
@@ -267,54 +286,8 @@ export default function WorkoutScreen() {
                   const lastSet = getLastSet(ex.id, si);
                   return (
                     <View key={si} style={{ marginBottom: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <Text style={styles.setLabel}>Set {si + 1}</Text>
-                        {weighted && (
-                          <TextInput
-                            style={styles.setInput}
-                            placeholder="lbs"
-                            placeholderTextColor={colors.textDim}
-                            keyboardType="decimal-pad"
-                            value={setData.weight}
-                            onChangeText={v => updateSet(ex.id, si, 'weight', v)}
-                          />
-                        )}
-                        {unilateral ? (
-                          <>
-                            <View style={styles.sideField}>
-                              <Text style={styles.sideLabel}>L</Text>
-                              <TextInput
-                                style={styles.setInputSm}
-                                placeholder={unit}
-                                placeholderTextColor={colors.textDim}
-                                keyboardType="number-pad"
-                                value={setData.left ?? ''}
-                                onChangeText={v => updateSet(ex.id, si, 'left', v)}
-                              />
-                            </View>
-                            <View style={styles.sideField}>
-                              <Text style={styles.sideLabel}>R</Text>
-                              <TextInput
-                                style={styles.setInputSm}
-                                placeholder={unit}
-                                placeholderTextColor={colors.textDim}
-                                keyboardType="number-pad"
-                                value={setData.right ?? ''}
-                                onChangeText={v => updateSet(ex.id, si, 'right', v)}
-                              />
-                            </View>
-                          </>
-                        ) : (
-                          <TextInput
-                            style={styles.setInput}
-                            placeholder={unit}
-                            placeholderTextColor={colors.textDim}
-                            keyboardType="number-pad"
-                            value={setData.reps}
-                            onChangeText={v => updateSet(ex.id, si, 'reps', v)}
-                          />
-                        )}
-                        {lastSet && (
+                      {(() => {
+                        const useBtn = lastSet ? (
                           <TouchableOpacity
                             style={styles.useLastBtn}
                             onPress={() => {
@@ -329,8 +302,74 @@ export default function WorkoutScreen() {
                           >
                             <Text style={styles.useLastBtnText}>↺ Use</Text>
                           </TouchableOpacity>
-                        )}
-                      </View>
+                        ) : null;
+
+                        const weightInput = weighted ? (
+                          <TextInput
+                            style={styles.setInput}
+                            placeholder="lbs"
+                            placeholderTextColor={colors.textDim}
+                            keyboardType="decimal-pad"
+                            value={setData.weight}
+                            onChangeText={v => updateSet(ex.id, si, 'weight', v)}
+                          />
+                        ) : null;
+
+                        // Unilateral: weight (if any) on its own line, with the
+                        // L/R split inputs directly beneath so neither wraps awkwardly.
+                        if (unilateral) {
+                          return (
+                            <>
+                              <View style={styles.setRow}>
+                                <Text style={styles.setLabel}>Set {si + 1}</Text>
+                                {weightInput}
+                              </View>
+                              <View style={styles.sideRow}>
+                                <View style={styles.sideField}>
+                                  <Text style={styles.sideLabel}>L</Text>
+                                  <TextInput
+                                    style={styles.setInputSm}
+                                    placeholder={unit}
+                                    placeholderTextColor={colors.textDim}
+                                    keyboardType="number-pad"
+                                    value={setData.left ?? ''}
+                                    onChangeText={v => updateSet(ex.id, si, 'left', v)}
+                                  />
+                                </View>
+                                <View style={styles.sideField}>
+                                  <Text style={styles.sideLabel}>R</Text>
+                                  <TextInput
+                                    style={styles.setInputSm}
+                                    placeholder={unit}
+                                    placeholderTextColor={colors.textDim}
+                                    keyboardType="number-pad"
+                                    value={setData.right ?? ''}
+                                    onChangeText={v => updateSet(ex.id, si, 'right', v)}
+                                  />
+                                </View>
+                                {useBtn}
+                              </View>
+                            </>
+                          );
+                        }
+
+                        // Bilateral: label, weight (if any), reps, and Use on one line.
+                        return (
+                          <View style={styles.setRow}>
+                            <Text style={styles.setLabel}>Set {si + 1}</Text>
+                            {weightInput}
+                            <TextInput
+                              style={styles.setInput}
+                              placeholder={unit}
+                              placeholderTextColor={colors.textDim}
+                              keyboardType="number-pad"
+                              value={setData.reps}
+                              onChangeText={v => updateSet(ex.id, si, 'reps', v)}
+                            />
+                            {useBtn}
+                          </View>
+                        );
+                      })()}
                       {lastSet && (
                         <Text style={styles.lastTime}>Last time: {lastSummary(ex, lastSet)}</Text>
                       )}
@@ -340,9 +379,6 @@ export default function WorkoutScreen() {
               })()}
             </View>
           ))}
-
-          {/* Cardio: interval timer (EMOM / Tabata / circuits) */}
-          {isCardio && <IntervalTimer />}
 
           {/* Cardio logging */}
           {isCardio && (
@@ -410,7 +446,15 @@ const styles = StyleSheet.create({
   tagText: { fontFamily: fonts.bold, fontSize: 10, letterSpacing: 1 },
   formBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
   formBtnText: { fontFamily: fonts.semibold, fontSize: 12, color: colors.textMuted },
+  timerBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.accent, borderRadius: 10,
+    paddingVertical: 10, marginBottom: 12, backgroundColor: colors.accentSoft,
+  },
+  timerBtnText: { fontFamily: fonts.semibold, fontSize: 14, color: colors.accent },
   setLabel: { fontFamily: fonts.semibold, fontSize: 13, color: colors.textDim, width: 52 },
+  setRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  sideRow: { flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginTop: 6, marginLeft: 52 },
   setInput: {
     width: 80, backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border,
     borderRadius: 10, padding: 10, color: colors.text, fontFamily: fonts.regular,

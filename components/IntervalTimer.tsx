@@ -1,15 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform, Vibration } from 'react-native';
+import { useAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { colors, fonts } from '@/constants/theme';
 
-type Phase = 'idle' | 'work' | 'rest' | 'done';
+type Phase = 'idle' | 'countdown' | 'work' | 'rest' | 'done';
 
-type Preset = { label: string; work: number; rest: number; rounds: number };
-const PRESETS: Preset[] = [
-  { label: 'Tabata', work: 20, rest: 10, rounds: 8 },
-  { label: 'EMOM', work: 60, rest: 0, rounds: 10 },
-  { label: 'Sprints', work: 30, rest: 90, rounds: 8 },
-];
+type IntervalTimerProps = {
+  /** Pre-fill values, e.g. from a workout's prescribed interval. */
+  initialWork?: number;
+  initialRest?: number;
+  initialRounds?: number;
+};
+
+const COUNTDOWN = 3; // "3, 2, 1" before the first work interval
 
 function buzz(pattern?: number | number[]) {
   if (Platform.OS === 'web') return;
@@ -22,10 +25,14 @@ function fmt(s: number) {
   return m > 0 ? `${m}:${sec.toString().padStart(2, '0')}` : `${sec}`;
 }
 
-export default function IntervalTimer() {
-  const [work, setWork] = useState(30);
-  const [rest, setRest] = useState(30);
-  const [rounds, setRounds] = useState(8);
+export default function IntervalTimer({
+  initialWork = 30,
+  initialRest = 30,
+  initialRounds = 8,
+}: IntervalTimerProps) {
+  const [work, setWork] = useState(initialWork);
+  const [rest, setRest] = useState(initialRest);
+  const [rounds, setRounds] = useState(initialRounds);
 
   const [phase, setPhase] = useState<Phase>('idle');
   const [round, setRound] = useState(1);
@@ -33,35 +40,80 @@ export default function IntervalTimer() {
   const [running, setRunning] = useState(false);
   const tick = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // --- Audio ---------------------------------------------------------------
+  // One player per cue. The silent track loops while the timer runs to keep
+  // the audio session active so beeps still fire when the screen is locked.
+  const countdownSound = useAudioPlayer(require('@/assets/sounds/countdown.wav'));
+  const workSound = useAudioPlayer(require('@/assets/sounds/work.wav'));
+  const restSound = useAudioPlayer(require('@/assets/sounds/rest.wav'));
+  const finishSound = useAudioPlayer(require('@/assets/sounds/finish.wav'));
+  const keepAlive = useAudioPlayer(require('@/assets/sounds/silence.wav'));
+
+  const play = (p: AudioPlayer) => { try { p.seekTo(0); p.play(); } catch { /* no-op */ } };
+
+  const startKeepAlive = () => {
+    try { keepAlive.loop = true; keepAlive.volume = 0; keepAlive.seekTo(0); keepAlive.play(); }
+    catch { /* no-op */ }
+  };
+  const stopKeepAlive = () => { try { keepAlive.pause(); } catch { /* no-op */ } };
+
+  // Configure the iOS/Android audio session: play through the silent switch
+  // and keep running in the background while the timer is active.
+  useEffect(() => {
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: 'mixWithOthers',
+    }).catch(() => { /* no-op */ });
+  }, []);
+
   // Keep the freshest values available to the interval callback.
   const state = useRef({ phase, round, remaining, work, rest, rounds });
   state.current = { phase, round, remaining, work, rest, rounds };
 
-  useEffect(() => () => { if (tick.current) clearInterval(tick.current); }, []);
+  useEffect(() => () => {
+    if (tick.current) clearInterval(tick.current);
+    stopKeepAlive();
+  }, []);
 
   const stopTick = () => { if (tick.current) { clearInterval(tick.current); tick.current = null; } };
 
-  const advance = () => {
-    const s = state.current;
-    if (s.phase === 'work') {
-      if (s.rest > 0) { setPhase('rest'); setRemaining(s.rest); buzz([0, 200, 100, 200]); return; }
-      // no rest → straight into next round (or done)
+  // Fired each time the visible second changes (the value we're counting down TO).
+  const onSecond = (next: number) => {
+    const ph = state.current.phase;
+    if (ph === 'countdown') {
+      if (next >= 1) play(countdownSound);           // the "2" and "1" beeps
+    } else if (ph === 'rest') {
+      if (next >= 1 && next <= 3) play(countdownSound); // get-ready cue, last 3s of rest
     }
-    // finishing a work block with no rest, or finishing a rest block
-    if (s.round >= s.rounds) { setPhase('done'); setRunning(false); stopTick(); buzz([0, 400, 150, 400, 150, 400]); return; }
-    setRound(s.round + 1); setPhase('work'); setRemaining(s.work); buzz(400);
   };
 
-  const start = () => {
-    if (running) return;
-    if (phase === 'idle' || phase === 'done') {
-      setPhase('work'); setRound(1); setRemaining(work); buzz(400);
+  const advance = () => {
+    const s = state.current;
+
+    // Countdown finished → first work interval begins.
+    if (s.phase === 'countdown') {
+      setPhase('work'); setRemaining(s.work); play(workSound); buzz(400); return;
     }
-    setRunning(true);
+
+    if (s.phase === 'work') {
+      if (s.rest > 0) { setPhase('rest'); setRemaining(s.rest); play(restSound); buzz([0, 200, 100, 200]); return; }
+      // no rest → straight into next round (or done)
+    }
+
+    // Finishing a work block with no rest, or finishing a rest block.
+    if (s.round >= s.rounds) {
+      setPhase('done'); setRunning(false); stopTick(); stopKeepAlive();
+      play(finishSound); buzz([0, 400, 150, 400, 150, 400]); return;
+    }
+    setRound(s.round + 1); setPhase('work'); setRemaining(s.work); play(workSound); buzz(400);
+  };
+
+  const startTick = () => {
     stopTick();
     tick.current = setInterval(() => {
       setRemaining(r => {
-        if (r > 1) return r - 1;
+        if (r > 1) { onSecond(r - 1); return r - 1; }
         // hit zero — transition on the next frame to keep this setter pure-ish
         setTimeout(advance, 0);
         return 0;
@@ -69,11 +121,34 @@ export default function IntervalTimer() {
     }, 1000);
   };
 
-  const pause = () => { setRunning(false); stopTick(); };
-  const reset = () => { setRunning(false); stopTick(); setPhase('idle'); setRound(1); setRemaining(0); };
+  const start = () => {
+    if (running) return;
+    startKeepAlive();
+    if (phase === 'idle' || phase === 'done') {
+      // Begin with the 3-2-1 countdown before the first work interval.
+      setPhase('countdown'); setRound(1); setRemaining(COUNTDOWN);
+      play(countdownSound); buzz(200); // the "3" beep
+    }
+    setRunning(true);
+    startTick();
+  };
+
+  const pause = () => { setRunning(false); stopTick(); stopKeepAlive(); };
+  const reset = () => {
+    setRunning(false); stopTick(); stopKeepAlive();
+    setPhase('idle'); setRound(1); setRemaining(0);
+  };
 
   const editable = phase === 'idle' || phase === 'done';
-  const phaseColor = phase === 'work' ? colors.accent : phase === 'rest' ? colors.success : colors.textMuted;
+  const phaseColor = phase === 'work' ? colors.accent
+    : phase === 'rest' ? colors.success
+    : phase === 'countdown' ? colors.warning
+    : colors.textMuted;
+
+  const phaseLabel = phase === 'idle' ? 'READY'
+    : phase === 'done' ? 'DONE 🎉'
+    : phase === 'countdown' ? 'GET READY'
+    : phase.toUpperCase();
 
   const Stepper = ({ label, value, onChange, step, min, max, suffix }: {
     label: string; value: number; onChange: (v: number) => void; step: number; min: number; max: number; suffix?: string;
@@ -104,29 +179,15 @@ export default function IntervalTimer() {
     <View style={styles.card}>
       <Text style={styles.cardTitle}>Interval Timer</Text>
 
-      {editable && (
-        <View style={styles.presets}>
-          {PRESETS.map(p => (
-            <TouchableOpacity
-              key={p.label}
-              style={styles.presetBtn}
-              onPress={() => { setWork(p.work); setRest(p.rest); setRounds(p.rounds); }}
-            >
-              <Text style={styles.presetText}>{p.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
-
       <View style={styles.display}>
-        <Text style={[styles.phaseLabel, { color: phaseColor }]}>
-          {phase === 'idle' ? 'READY' : phase === 'done' ? 'DONE 🎉' : phase.toUpperCase()}
-        </Text>
+        <Text style={[styles.phaseLabel, { color: phaseColor }]}>{phaseLabel}</Text>
         <Text style={[styles.bigTime, { color: phaseColor }]}>
           {phase === 'idle' ? fmt(work) : fmt(remaining)}
         </Text>
         <Text style={styles.roundText}>
-          {phase === 'done' ? `${rounds} rounds complete` : `Round ${round} of ${rounds}`}
+          {phase === 'done' ? `${rounds} rounds complete`
+            : phase === 'countdown' ? 'Starting…'
+            : `Round ${round} of ${rounds}`}
         </Text>
       </View>
 
@@ -159,9 +220,6 @@ export default function IntervalTimer() {
 const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.border },
   cardTitle: { fontFamily: fonts.semibold, fontSize: 14, color: colors.text, marginBottom: 10 },
-  presets: { flexDirection: 'row', gap: 8, marginBottom: 12 },
-  presetBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
-  presetText: { fontFamily: fonts.semibold, fontSize: 12, color: colors.textMuted },
   display: { alignItems: 'center', paddingVertical: 12 },
   phaseLabel: { fontFamily: fonts.bold, fontSize: 13, letterSpacing: 2, marginBottom: 2 },
   bigTime: { fontFamily: fonts.display, fontSize: 56, letterSpacing: 1 },

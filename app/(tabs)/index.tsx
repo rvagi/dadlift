@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ScrollView, View, Text, TouchableOpacity, StyleSheet, SafeAreaView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useApp } from '@/context/AppContext';
 import { useSubscription } from '@/context/SubscriptionContext';
@@ -33,6 +34,14 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.safe}>
       <View style={styles.header}>
         <Text style={styles.logo}>DADLIFT</Text>
+        <TouchableOpacity
+          style={styles.timerBtn}
+          onPress={() => router.push('/timer')}
+          accessibilityLabel="Open interval timer"
+          hitSlop={8}
+        >
+          <Ionicons name="timer-outline" size={24} color={colors.accent} />
+        </TouchableOpacity>
       </View>
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.h1}>DO MY WORKOUT</Text>
@@ -155,10 +164,12 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 10,
     borderBottomWidth: 1, borderBottomColor: colors.border,
   },
   logo: { fontFamily: fonts.display, fontSize: 28, letterSpacing: 2, color: colors.accent },
+  timerBtn: { padding: 4 },
   scroll: { padding: 20, paddingBottom: 32 },
   h1: { fontFamily: fonts.display, fontSize: 32, letterSpacing: 1, color: colors.text, marginBottom: 8 },
   h2: { fontFamily: fonts.display, fontSize: 24, letterSpacing: 1, color: colors.text, marginTop: 24, marginBottom: 12 },

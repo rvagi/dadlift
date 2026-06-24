@@ -24,6 +24,12 @@ export type Workout = {
   modifications?: string;
   exercises: Exercise[];
   custom?: boolean;
+  /**
+   * Prescribed interval structure, when the workout has one. Used to pre-fill
+   * the interval timer (work/rest seconds, number of rounds). Omitted for
+   * steady-state or non-interval workouts, which open the timer with defaults.
+   */
+  timer?: { work: number; rest: number; rounds: number };
 };
 
 const SE_WARMUP = "Start with 3-5 minutes of light movement to get your blood flowing — a brisk walk, jog in place, or jumping jacks. Then do 10 arm circles (forward and backward), 10 bodyweight squats, and 10 leg swings per side. The goal is to feel warm and loose, not tired.";
@@ -538,7 +544,7 @@ export const WORKOUTS: Workout[] = [
   {
     id: "cvo2-1", name: "Hill Repeats", type: "cardio-vo2max", equipment: "bodyweight",
     description: "Find a hill. Run up it. Walk down. Repeat. Simple and brutally effective.",
-    warmup: VO2_WARMUP, modifications: VO2_MODS,
+    warmup: VO2_WARMUP, modifications: VO2_MODS, timer: { work: 45, rest: 60, rounds: 8 },
     exercises: [
       { id: "e1", name: "Hill Sprints", category: "cardio", sets: 1, notes: "Find a steep hill that takes 30-60 seconds to sprint up. Run up as hard as you can, then walk back down to recover. That's one repeat. Do 6-12 repeats. When you get to the top, you should be breathing so hard that talking is impossible.", is_weighted: false, is_unilateral: false, tracking_type: "time" },
     ],
@@ -546,7 +552,7 @@ export const WORKOUTS: Workout[] = [
   {
     id: "cvo2-2", name: "The Interval Mile", type: "cardio-vo2max", equipment: "bodyweight",
     description: "Short sprints. Full recovery. Maximum effort. 20-25 minutes total.",
-    warmup: VO2_WARMUP, modifications: VO2_MODS,
+    warmup: VO2_WARMUP, modifications: VO2_MODS, timer: { work: 30, rest: 90, rounds: 8 },
     exercises: [
       { id: "e1", name: "Running Intervals", category: "cardio", sets: 1, notes: "After a 5-minute easy warmup: sprint as fast as you can for 30 seconds, then walk or jog very easy for 90 seconds. That's one round. Do 8-10 rounds. The sprints should feel like an 8-9 out of 10 effort.", is_weighted: false, is_unilateral: false, tracking_type: "time" },
     ],
@@ -554,7 +560,7 @@ export const WORKOUTS: Workout[] = [
   {
     id: "cvo2-3", name: "Burpee Blitz", type: "cardio-vo2max", equipment: "bodyweight",
     description: "No running required. No equipment. Just burpees and willpower.",
-    warmup: VO2_WARMUP, modifications: VO2_MODS,
+    warmup: VO2_WARMUP, modifications: VO2_MODS, timer: { work: 30, rest: 30, rounds: 10 },
     exercises: [
       { id: "e1", name: "Burpee Intervals", category: "cardio", sets: 1, notes: "A burpee: squat down, place your hands on the floor, jump your feet back to a push-up position, lower your chest to the floor, push up, jump your feet forward, and jump up with hands overhead. Do 30 seconds of burpees, rest 30 seconds. Repeat for 10-15 rounds.", is_weighted: false, is_unilateral: false, tracking_type: "time" },
     ],
@@ -562,7 +568,7 @@ export const WORKOUTS: Workout[] = [
   {
     id: "cvo2-4", name: "The Bike Sprint", type: "cardio-vo2max", equipment: "bodyweight",
     description: "On a bike — real or stationary. Short, all-out efforts. Great if running is hard on your joints.",
-    warmup: VO2_WARMUP, modifications: VO2_MODS,
+    warmup: VO2_WARMUP, modifications: VO2_MODS, timer: { work: 20, rest: 40, rounds: 8 },
     exercises: [
       { id: "e1", name: "Cycling Intervals", category: "cardio", sets: 1, notes: "After a 5-minute easy warmup: pedal as absolutely hard as you can for 20 seconds, then pedal very easy for 40 seconds. That's one round. Do 8-12 rounds. Those 20 seconds should feel like you're being chased.", is_weighted: false, is_unilateral: false, tracking_type: "time" },
     ],
@@ -570,7 +576,7 @@ export const WORKOUTS: Workout[] = [
   {
     id: "cvo2-5", name: "Stair Climber", type: "cardio-vo2max", equipment: "bodyweight",
     description: "Find stairs. Any stairs. Stadium bleachers, a parking ramp, your office stairwell.",
-    warmup: VO2_WARMUP, modifications: VO2_MODS,
+    warmup: VO2_WARMUP, modifications: VO2_MODS, timer: { work: 30, rest: 45, rounds: 8 },
     exercises: [
       { id: "e1", name: "Stair Sprints", category: "cardio", sets: 1, notes: "Sprint up the stairs as fast as you can, then walk back down. That's one repeat. Do 8-12 repeats. Like hill repeats, you should be gasping at the top. Walk down slowly to recover.", is_weighted: false, is_unilateral: false, tracking_type: "time" },
     ],
@@ -578,7 +584,7 @@ export const WORKOUTS: Workout[] = [
   {
     id: "cvo2-6", name: "Jump Rope Lightning", type: "cardio-vo2max", equipment: "bodyweight",
     description: "A jump rope costs $10 and delivers world-class cardio. No excuses.",
-    warmup: VO2_WARMUP, modifications: VO2_MODS,
+    warmup: VO2_WARMUP, modifications: VO2_MODS, timer: { work: 30, rest: 30, rounds: 10 },
     exercises: [
       { id: "e1", name: "Jump Rope Intervals", category: "cardio", sets: 1, notes: "Jump rope as fast as you can for 30 seconds, rest 30 seconds. Do 10-15 rounds. If you trip up, just restart — tripping is normal. If you don't have a rope, do imaginary jump rope (same motion, no rope).", is_weighted: false, is_unilateral: false, tracking_type: "time" },
     ],
@@ -594,7 +600,7 @@ export const WORKOUTS: Workout[] = [
   {
     id: "cvo2-8", name: "The Rowing Rocket", type: "cardio-vo2max", equipment: "full-gym",
     description: "Rowing intervals. All the intensity, none of the impact on your joints.",
-    warmup: VO2_WARMUP, modifications: VO2_MODS,
+    warmup: VO2_WARMUP, modifications: VO2_MODS, timer: { work: 30, rest: 60, rounds: 8 },
     exercises: [
       { id: "e1", name: "Rowing Intervals", category: "cardio", sets: 1, notes: "After a 3-minute easy warmup: row as hard and fast as you can for 30 seconds, then row easy for 60 seconds. Do 8-10 rounds. Watch the watts or calories per hour — try to hit a higher number each interval.", is_weighted: false, is_unilateral: false, tracking_type: "time" },
     ],
@@ -602,7 +608,7 @@ export const WORKOUTS: Workout[] = [
   {
     id: "cvo2-9", name: "Kettlebell Cardio Blast", type: "cardio-vo2max", equipment: "kettlebell",
     description: "Kettlebell swings are cardio disguised as strength training. This will empty the tank.",
-    warmup: VO2_WARMUP, modifications: VO2_MODS,
+    warmup: VO2_WARMUP, modifications: VO2_MODS, timer: { work: 30, rest: 30, rounds: 10 },
     exercises: [
       { id: "e1", name: "Kettlebell Swing Intervals", category: "cardio", sets: 1, notes: "Do 20 kettlebell swings (hip hinge, snap hips forward, bell swings to chest height), then rest 30 seconds. Repeat for 10-12 rounds. By round 5, you'll understand why this counts as cardio.", is_weighted: false, is_unilateral: false, tracking_type: "time" },
     ],
